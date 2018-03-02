@@ -106,7 +106,6 @@ class XHR_PollingTransport(AbstractTransport):
                 params=params,
                 data=memoryview(data),
                 **self._kw_post)
-            assert response.content == b'ok'
 
     def _get_timestamp(self):
         with self._request_index_lock:
@@ -139,17 +138,20 @@ class WebsocketTransport(AbstractTransport):
                 kw['http_proxy_auth'] = (
                     proxy_url_pack.username, proxy_url_pack.password)
         if http_session.verify:
+            kw['sslopt'] = {'cert_reqs': ssl.CERT_REQUIRED, 'ca_certs': http_session.verify}
             if http_session.cert:  # Specify certificate path on disk
-                if isinstance(http_session.cert, basestring):
-                    kw['ca_certs'] = http_session.cert
+                if isinstance(http_session.cert, str):
+                    kw['sslopt']['certfile'] = http_session.cert
                 else:
-                    kw['ca_certs'] = http_session.cert[0]
+                    kw['sslopt']['certfile'] = http_session.cert[0]
+                    kw['sslopt']['keyfile'] = http_session.cert[1]
         else:  # Do not verify the SSL certificate
             kw['sslopt'] = {'cert_reqs': ssl.CERT_NONE}
         try:
             self._connection = websocket.create_connection(ws_url, **kw)
         except Exception as e:
             raise ConnectionError(e)
+        self._send_packet_lock = threading.Lock()
 
     def recv_packet(self):
         try:
@@ -169,15 +171,16 @@ class WebsocketTransport(AbstractTransport):
         yield engineIO_packet_type, engineIO_packet_data
 
     def send_packet(self, engineIO_packet_type, engineIO_packet_data=''):
-        packet = format_packet_text(engineIO_packet_type, engineIO_packet_data)
-        try:
-            self._connection.send(packet)
-        except websocket.WebSocketTimeoutException as e:
-            raise TimeoutError('send timed out (%s)' % e)
-        except socket.error as e:
-            raise ConnectionError('send disconnected (%s)' % e)
-        except websocket.WebSocketConnectionClosedException as e:
-            raise ConnectionError('send disconnected (%s)' % e)
+        with self._send_packet_lock:
+            packet = format_packet_text(engineIO_packet_type, engineIO_packet_data)
+            try:
+                self._connection.send(packet)
+            except websocket.WebSocketTimeoutException as e:
+                raise TimeoutError('send timed out (%s)' % e)
+            except socket.error as e:
+                raise ConnectionError('send disconnected (%s)' % e)
+            except websocket.WebSocketConnectionClosedException as e:
+                raise ConnectionError('send disconnected (%s)' % e)
 
     def set_timeout(self, seconds=None):
         self._connection.settimeout(seconds or self._timeout)
