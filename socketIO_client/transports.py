@@ -139,14 +139,14 @@ class WebsocketTransport(AbstractTransport):
                     proxy_url_pack.username, proxy_url_pack.password)
         if http_session.verify:
             kw['sslopt'] = {'cert_reqs': ssl.CERT_REQUIRED, 'ca_certs': http_session.verify}
-            if http_session.cert:  # Specify certificate path on disk
-                if isinstance(http_session.cert, str):
-                    kw['sslopt']['certfile'] = http_session.cert
-                else:
-                    kw['sslopt']['certfile'] = http_session.cert[0]
-                    kw['sslopt']['keyfile'] = http_session.cert[1]
         else:  # Do not verify the SSL certificate
             kw['sslopt'] = {'cert_reqs': ssl.CERT_NONE}
+        if http_session.cert:  # Specify certificate path on disk
+            if isinstance(http_session.cert, str):
+                kw['sslopt']['certfile'] = http_session.cert
+            else:
+                kw['sslopt']['certfile'] = http_session.cert[0]
+                kw['sslopt']['keyfile'] = http_session.cert[1]
         try:
             self._connection = websocket.create_connection(ws_url, **kw)
         except Exception as e:
